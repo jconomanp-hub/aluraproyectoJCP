@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import time
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader, CSVLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -11,6 +12,48 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # Cargar variables de entorno (Local o en el Servidor)
 load_dotenv()
+
+class RateLimitedEmbeddings:
+    """
+    Clase contenedora para GoogleGenerativeAIEmbeddings que maneja los límites de cuota (Rate Limits / Error 429).
+    Envía los textos en lotes pequeños y añade pausas de seguridad y reintentos automáticos.
+    """
+    def __init__(self, model="models/gemini-embedding-001", batch_size=20, delay_seconds=3):
+        self.underlying_embeddings = GoogleGenerativeAIEmbeddings(model=model)
+        self.batch_size = batch_size
+        self.delay_seconds = delay_seconds
+
+    def embed_documents(self, texts):
+        embeddings = []
+        total_texts = len(texts)
+        
+        # Procesar los fragmentos en lotes (batches) controlados
+        for i in range(0, total_texts, self.batch_size):
+            batch = texts[i:i + self.batch_size]
+            retries = 5
+            
+            for attempt in range(retries):
+                try:
+                    # Intenta obtener los embeddings para el lote actual
+                    batch_embeddings = self.underlying_embeddings.embed_documents(batch)
+                    embeddings.extend(batch_embeddings)
+                    break
+                except Exception as e:
+                    # Si recibimos un error de límite de cuota (429), aplicamos retroceso exponencial
+                    if "429" in str(e) and attempt < retries - 1:
+                        sleep_time = (2 ** attempt) + 5
+                        time.sleep(sleep_time)
+                    else:
+                        raise e
+            
+            # Pausa de seguridad fija entre lotes exitosos para no saturar la API
+            time.sleep(self.delay_seconds)
+            
+        return embeddings
+
+    def embed_query(self, text):
+        # Para consultas individuales no suele haber problemas de límite de cuota
+        return self.underlying_embeddings.embed_query(text)
 
 # Configuración de página de Streamlit
 st.set_page_config(page_title="Alura Agente - OCI", page_icon="🤖", layout="centered")
@@ -44,31 +87,39 @@ with st.sidebar:
         with open(temp_file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
-        with st.spinner("Procesando y vectorizando documento..."):
-            try:
-                # 1. Cargar el tipo de archivo correspondiente
-                if temp_file_path.endswith('.pdf'):
-                    loader = PyPDFLoader(temp_file_path)
-                else:
-                    loader = CSVLoader(temp_file_path)
-                
-                docs = loader.load()
-                
-                # 2. Fragmentar el documento
-                splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                chunks = splitter.split_documents(docs)
-                
-                # 3. Generar Embeddings usando el nuevo modelo oficial gemini-embedding-001
-                # Este modelo es de nueva generación, multilingüe y tiene un soporte activo garantizado.
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
-                st.session_state.vector_store = FAISS.from_documents(chunks, embeddings)
-                
-                st.success("✅ ¡Documento indexado con éxito!")
-                
-                # Eliminar archivo temporal
-                os.remove(temp_file_path)
-            except Exception as e:
-                st.error(f"Error procesando el archivo: {e}")
+        # Contenedor de progreso visual para el procesamiento
+        progress_placeholder = st.empty()
+        with progress_placeholder.container():
+            with st.spinner("Procesando y vectorizando documento de forma segura..."):
+                try:
+                    # 1. Cargar el tipo de archivo correspondiente
+                    if temp_file_path.endswith('.pdf'):
+                        loader = PyPDFLoader(temp_file_path)
+                    else:
+                        loader = CSVLoader(temp_file_path)
+                    
+                    docs = loader.load()
+                    
+                    # 2. Fragmentar el documento (Optimizamos tamaños para reducir la cantidad de fragmentos)
+                    splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
+                    chunks = splitter.split_documents(docs)
+                    
+                    # 3. Generar Embeddings usando la clase controladora de cuotas
+                    embeddings = RateLimitedEmbeddings(
+                        model="models/gemini-embedding-001",
+                        batch_size=15,    # Enviar en paquetes de 15 textos
+                        delay_seconds=3   # Esperar 3 segundos entre paquetes para respetar los límites de la API
+                    )
+                    
+                    st.session_state.vector_store = FAISS.from_documents(chunks, embeddings)
+                    
+                    st.success("✅ ¡Documento indexado con éxito!")
+                    
+                    # Eliminar archivo temporal
+                    if os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+                except Exception as e:
+                    st.error(f"Error procesando el archivo: {e}")
 
 # Zona principal de Chat interactivo
 if st.session_state.vector_store is None:
@@ -97,7 +148,7 @@ else:
                     system_prompt = (
                         "Eres un asistente inteligente corporativo.\n"
                         "Usa los siguientes fragmentos de contexto para responder de forma concisa y profesional.\n"
-                        "Si no encuentras la respuesta en el contexto proporcionado, indícalo educadamente.\n\n"
+                        "Si no encuentras la respuesta en el contexto proporcionado, indícalo de forma educada y profesional.\n\n"
                         "Contexto:\n{context}"
                     )
                     
