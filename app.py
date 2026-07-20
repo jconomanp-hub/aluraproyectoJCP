@@ -15,11 +15,12 @@ load_dotenv()
 
 class RateLimitedEmbeddings:
     """
-    Clase contenedora para GoogleGenerativeAIEmbeddings que maneja los límites de cuota (Rate Limits / Error 429).
-    Envía los textos en lotes pequeños y añade pausas de seguridad y reintentos automáticos.
+    Clase contenedora para GoogleGenerativeAIEmbeddings que maneja de forma eficiente
+    y segura los límites de cuota (peticiones por minuto y por día de la API de Gemini).
     """
-    def __init__(self, model="models/gemini-embedding-001", batch_size=20, delay_seconds=3):
+    def __init__(self, model="models/gemini-embedding-001", batch_size=100, delay_seconds=4):
         self.underlying_embeddings = GoogleGenerativeAIEmbeddings(model=model)
+        # Súper lotes de 100 para minimizar dramáticamente las peticiones diarias (RPD)
         self.batch_size = batch_size
         self.delay_seconds = delay_seconds
 
@@ -27,7 +28,7 @@ class RateLimitedEmbeddings:
         embeddings = []
         total_texts = len(texts)
         
-        # Procesar los fragmentos en lotes (batches) controlados
+        # Procesar los fragmentos en grupos grandes optimizados
         for i in range(0, total_texts, self.batch_size):
             batch = texts[i:i + self.batch_size]
             retries = 5
@@ -41,18 +42,17 @@ class RateLimitedEmbeddings:
                 except Exception as e:
                     # Si recibimos un error de límite de cuota (429), aplicamos retroceso exponencial
                     if "429" in str(e) and attempt < retries - 1:
-                        sleep_time = (2 ** attempt) + 5
+                        sleep_time = (2 ** attempt) + 6
                         time.sleep(sleep_time)
                     else:
                         raise e
             
-            # Pausa de seguridad fija entre lotes exitosos para no saturar la API
+            # Pausa de seguridad fija para respetar el límite de peticiones por minuto (RPM)
             time.sleep(self.delay_seconds)
             
         return embeddings
 
     def embed_query(self, text):
-        # Para consultas individuales no suele haber problemas de límite de cuota
         return self.underlying_embeddings.embed_query(text)
 
 # Configuración de página de Streamlit
@@ -90,7 +90,7 @@ with st.sidebar:
         # Contenedor de progreso visual para el procesamiento
         progress_placeholder = st.empty()
         with progress_placeholder.container():
-            with st.spinner("Procesando y vectorizando documento de forma segura..."):
+            with st.spinner("Optimizando y vectorizando documento en súper lotes..."):
                 try:
                     # 1. Cargar el tipo de archivo correspondiente
                     if temp_file_path.endswith('.pdf'):
@@ -100,20 +100,21 @@ with st.sidebar:
                     
                     docs = loader.load()
                     
-                    # 2. Fragmentar el documento (Optimizamos tamaños para reducir la cantidad de fragmentos)
-                    splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
+                    # 2. Fragmentar el documento (Optimizamos tamaños para reducir radicalmente la cantidad de fragmentos)
+                    # Al usar 3000 caracteres, generamos 1/3 de los fragmentos previos, conservando mejor el contexto
+                    splitter = RecursiveCharacterTextSplitter(chunk_size=3000, chunk_overlap=300)
                     chunks = splitter.split_documents(docs)
                     
-                    # 3. Generar Embeddings usando la clase controladora de cuotas
+                    # 3. Generar Embeddings usando súper lotes de 100
                     embeddings = RateLimitedEmbeddings(
                         model="models/gemini-embedding-001",
-                        batch_size=15,    # Enviar en paquetes de 15 textos
-                        delay_seconds=3   # Esperar 3 segundos entre paquetes para respetar los límites de la API
+                        batch_size=100,   # Súper lote para reducir el consumo de tu cuota diaria (RPD)
+                        delay_seconds=4   # Pausa para evitar saturación por minuto (RPM)
                     )
                     
                     st.session_state.vector_store = FAISS.from_documents(chunks, embeddings)
                     
-                    st.success("✅ ¡Documento indexado con éxito!")
+                    st.success("✅ ¡Documento indexado con éxito sin agotar tu cuota!")
                     
                     # Eliminar archivo temporal
                     if os.path.exists(temp_file_path):
