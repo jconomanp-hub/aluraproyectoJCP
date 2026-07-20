@@ -58,8 +58,9 @@ with st.sidebar:
                 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                 chunks = splitter.split_documents(docs)
                 
-                # 3. Generar Embeddings y almacenar en FAISS
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+                # 3. Generar Embeddings usando el nuevo modelo oficial gemini-embedding-001
+                # Este modelo es de nueva generación, multilingüe y tiene un soporte activo garantizado.
+                embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
                 st.session_state.vector_store = FAISS.from_documents(chunks, embeddings)
                 
                 st.success("✅ ¡Documento indexado con éxito!")
