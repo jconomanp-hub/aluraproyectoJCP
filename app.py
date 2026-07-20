@@ -11,12 +11,11 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.embeddings import Embeddings
 
-#load_dotenv()
+# Cargar variables de entorno
+load_dotenv()
 
-#class RateLimitedEmbeddings(Embeddings):
-    """
-    Clase para gestionar límites de API solo durante la indexación.
-    """
+# Clase para gestionar límites de API durante la indexación
+class RateLimitedEmbeddings(Embeddings):
     def __init__(self, model="models/gemini-embedding-001", batch_size=50, delay_seconds=10):
         self.underlying_embeddings = GoogleGenerativeAIEmbeddings(model=model)
         self.batch_size = batch_size
@@ -26,7 +25,6 @@ from langchain_core.embeddings import Embeddings
         embeddings = []
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i:i + self.batch_size]
-            # Intento con reintento simple
             embeddings.extend(self.underlying_embeddings.embed_documents(batch))
             time.sleep(self.delay_seconds)
         return embeddings
@@ -34,7 +32,8 @@ from langchain_core.embeddings import Embeddings
     def embed_query(self, text):
         return self.underlying_embeddings.embed_query(text)
 
-#st.set_page_config(page_title="Alura Agente - OCI", page_icon="🤖", layout="centered")
+# Configuración de página
+st.set_page_config(page_title="Alura Agente - OCI", page_icon="🤖", layout="centered")
 st.title("🤖 Alura Agente Corporativo")
 
 api_key = os.getenv("GOOGLE_API_KEY")
@@ -46,7 +45,8 @@ if not api_key:
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
-#with st.sidebar:
+# Sidebar
+with st.sidebar:
     st.header("📂 Configuración")
     uploaded_file = st.file_uploader("Sube un PDF o CSV", type=["pdf", "csv"])
     
@@ -66,7 +66,6 @@ if "vector_store" not in st.session_state:
                 splitter = RecursiveCharacterTextSplitter(chunk_size=3000, chunk_overlap=300)
                 chunks = splitter.split_documents(docs)
                 
-                # Usamos la clase limitada solo para crear la BD
                 embeddings_indexer = RateLimitedEmbeddings(delay_seconds=5)
                 st.session_state.vector_store = FAISS.from_documents(chunks, embeddings_indexer)
                 
@@ -75,15 +74,16 @@ if "vector_store" not in st.session_state:
             except Exception as e:
                 st.error(f"Error crítico: {e}")
 
-#if st.session_state.vector_store is not None:
+# Chat interactivo
+if st.session_state.vector_store is not None:
     if user_query := st.chat_input("Pregunta sobre el documento:"):
-        with st.chat_message("user"): st.markdown(user_query)
+        with st.chat_message("user"): 
+            st.markdown(user_query)
         with st.chat_message("assistant"):
-            # IMPORTANTE: Usamos el objeto estándar aquí, NO el limitado
+            # Usamos el objeto estándar aquí para evitar conflictos con la clase limitada
             embeddings_standard = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
             llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3)
             
-            # El retriever usa el vector store ya creado
             retriever = st.session_state.vector_store.as_retriever(search_kwargs={"k": 3})
             
             prompt = ChatPromptTemplate.from_messages([
@@ -91,7 +91,6 @@ if "vector_store" not in st.session_state:
                 ("human", "{input}")
             ])
             
-            # Esto ahora funcionará porque no estamos pasando el objeto "RateLimitedEmbeddings" aquí
             chain = create_retrieval_chain(retriever, create_stuff_documents_chain(llm, prompt))
             response = chain.invoke({"input": user_query})
             st.markdown(response["answer"])
