@@ -11,13 +11,12 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.embeddings import Embeddings
 
-# 1. Cargar variables de entorno
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 
-# 2. Clase optimizada con el modelo estable "models/embedding-001"
 class RateLimitedEmbeddings(Embeddings):
-    def __init__(self, model="models/embedding-001", batch_size=10, delay_seconds=2):
+    def __init__(self, model="text-embedding-004", batch_size=5, delay_seconds=2):
+        # Usamos "text-embedding-004" sin prefijo para mayor compatibilidad
         self.underlying_embeddings = GoogleGenerativeAIEmbeddings(model=model, google_api_key=api_key)
         self.batch_size = batch_size
         self.delay_seconds = delay_seconds
@@ -63,8 +62,8 @@ with st.sidebar:
                 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
                 chunks = splitter.split_documents(docs)
                 
-                # Usamos la clase con el modelo estable
-                embeddings_indexer = RateLimitedEmbeddings(model="models/embedding-001", delay_seconds=1)
+                # Usamos la clase con el modelo "text-embedding-004" explícito
+                embeddings_indexer = RateLimitedEmbeddings(model="text-embedding-004", delay_seconds=1)
                 st.session_state.vector_store = FAISS.from_documents(chunks, embeddings_indexer)
                 
                 st.success("✅ ¡Indexado con éxito!")
@@ -77,7 +76,7 @@ if st.session_state.vector_store is not None:
         with st.chat_message("user"): 
             st.markdown(user_query)
         with st.chat_message("assistant"):
-            # Usamos el modelo estándar
+            # Usamos el modelo estándar de chat
             llm = ChatGoogleGenerativeAI(
                 model="gemini-1.5-flash", 
                 temperature=0.3,
