@@ -11,13 +11,18 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.embeddings import Embeddings
 
+# 1. Cargar variables de entorno
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 
+# 2. Clase para manejar embeddings con límite de velocidad
 class RateLimitedEmbeddings(Embeddings):
     def __init__(self, model="text-embedding-004", batch_size=5, delay_seconds=2):
-        # Usamos "text-embedding-004" sin prefijo para mayor compatibilidad
-        self.underlying_embeddings = GoogleGenerativeAIEmbeddings(model=model, google_api_key=api_key)
+        # Inicializamos explícitamente sin prefijo "models/"
+        self.underlying_embeddings = GoogleGenerativeAIEmbeddings(
+            model=model, 
+            google_api_key=api_key
+        )
         self.batch_size = batch_size
         self.delay_seconds = delay_seconds
 
@@ -32,6 +37,7 @@ class RateLimitedEmbeddings(Embeddings):
     def embed_query(self, text):
         return self.underlying_embeddings.embed_query(text)
 
+# 3. Configuración de Streamlit
 st.set_page_config(page_title="Alura Agente - OCI", page_icon="🤖", layout="centered")
 st.title("🤖 Alura Agente Corporativo")
 
@@ -42,6 +48,7 @@ if not api_key:
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
+# 4. Lógica de procesamiento
 with st.sidebar:
     st.header("📂 Configuración")
     uploaded_file = st.file_uploader("Sube un PDF o CSV", type=["pdf", "csv"])
@@ -62,7 +69,7 @@ with st.sidebar:
                 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
                 chunks = splitter.split_documents(docs)
                 
-                # Usamos la clase con el modelo "text-embedding-004" explícito
+                # Usamos el modelo estándar sin prefijo
                 embeddings_indexer = RateLimitedEmbeddings(model="text-embedding-004", delay_seconds=1)
                 st.session_state.vector_store = FAISS.from_documents(chunks, embeddings_indexer)
                 
@@ -71,12 +78,12 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Error crítico: {e}")
 
+# 5. Lógica de Chat
 if st.session_state.vector_store is not None:
     if user_query := st.chat_input("Pregunta sobre el documento:"):
         with st.chat_message("user"): 
             st.markdown(user_query)
         with st.chat_message("assistant"):
-            # Usamos el modelo estándar de chat
             llm = ChatGoogleGenerativeAI(
                 model="gemini-1.5-flash", 
                 temperature=0.3,
