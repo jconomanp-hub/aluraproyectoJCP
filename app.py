@@ -11,12 +11,11 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.embeddings import Embeddings
 
-load_dotenv()
+#load_dotenv()
 
-# Clase optimizada para indexación sin errores 429
+# Clase optimizada para indexación sin errores
 class RateLimitedEmbeddings(Embeddings):
-    def __init__(self, model="models/text-embedding-004", batch_size=20, delay_seconds=5):
-        # Actualizado al modelo estándar actual de Google
+    def __init__(self, model="embedding-001", batch_size=20, delay_seconds=2):
         self.underlying_embeddings = GoogleGenerativeAIEmbeddings(model=model)
         self.batch_size = batch_size
         self.delay_seconds = delay_seconds
@@ -32,10 +31,10 @@ class RateLimitedEmbeddings(Embeddings):
     def embed_query(self, text):
         return self.underlying_embeddings.embed_query(text)
 
-st.set_page_config(page_title="Alura Agente - OCI", page_icon="🤖", layout="centered")
+#st.set_page_config(page_title="Alura Agente - OCI", page_icon="🤖", layout="centered")
 st.title("🤖 Alura Agente Corporativo")
 
-api_key = os.getenv("GOOGLE_API_KEY")
+#api_key = os.getenv("GOOGLE_API_KEY")
 if not api_key:
     st.error("🔑 API Key no configurada en .env")
     st.stop()
@@ -43,7 +42,7 @@ if not api_key:
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
-with st.sidebar:
+#with st.sidebar:
     st.header("📂 Configuración")
     uploaded_file = st.file_uploader("Sube un PDF o CSV", type=["pdf", "csv"])
     
@@ -60,11 +59,11 @@ with st.sidebar:
                     loader = CSVLoader(temp_file_path)
                 
                 docs = loader.load()
-                splitter = RecursiveCharacterTextSplitter(chunk_size=3000, chunk_overlap=300)
+                splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
                 chunks = splitter.split_documents(docs)
                 
-                # Usamos el modelo nuevo text-embedding-004
-                embeddings_indexer = RateLimitedEmbeddings(model="models/text-embedding-004", delay_seconds=4)
+                # Usamos embedding-001 que es más compatible
+                embeddings_indexer = RateLimitedEmbeddings(model="embedding-001", delay_seconds=1)
                 st.session_state.vector_store = FAISS.from_documents(chunks, embeddings_indexer)
                 
                 st.success("✅ ¡Indexado con éxito!")
@@ -72,13 +71,13 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Error crítico: {e}")
 
-if st.session_state.vector_store is not None:
+#if st.session_state.vector_store is not None:
     if user_query := st.chat_input("Pregunta sobre el documento:"):
         with st.chat_message("user"): 
             st.markdown(user_query)
         with st.chat_message("assistant"):
-            # Usamos el modelo nuevo text-embedding-004 para el retriever
-            embeddings_standard = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+            # Usamos embedding-001 para la consulta
+            embeddings_standard = GoogleGenerativeAIEmbeddings(model="embedding-001")
             
             llm = ChatGoogleGenerativeAI(
                 model="gemini-1.5-flash", 
